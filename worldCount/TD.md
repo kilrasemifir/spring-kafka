@@ -93,7 +93,7 @@ services:
 
 Nous allons maintenant configurer nos applications pour qu'elles puissent communiquer avec Kafka.
 
-Voici le schéma de communication entre les applications:
+Voici le schéma de communication entre les applications :
 ![schema](assets/simple-pub-sub.svg)
 
 #### 3.1. Configuration du **publisher**
@@ -130,8 +130,16 @@ Ajouter une méthode `sendMessage` qui permet d'envoyer un message à Kafka.
 Pour publier un message à Kafka, nous utilisons la méthode `send` de `KafkaTemplate`:
 
 ```java
-public void sendMessage(String topic, String key, String message) {
-    kafkaTemplate.send(topic, message);
+class SimplePublisher {
+    private final KafkaTemplate<String, String> kafkaTemplate;
+    
+    public SimplePublisher(KafkaTemplate<String, String> kafkaTemplate) {
+        this.kafkaTemplate = kafkaTemplate;
+    }
+    
+    void sendMessage(String topic, String key, String message) {
+        kafkaTemplate.send(topic, key, message);
+    }
 }
 ```
 
@@ -542,7 +550,6 @@ Nous allons créer un objet Message qui contient un id et un contenu.
 
 ```java
 public class Message {
-  private String id;
   private String content;
   private String auteur;
 
@@ -555,14 +562,440 @@ public class Message {
 
 Nous allons maintenant ajouter une méthode dans le publisher qui va envoyer un objet Message.
 
+Pour cela nous avons besoin d'un nouveau KafkaTemplate pour pouvoir envoyer des Messages.
+
 ```java
 @Component
 public class SimplePublisher {
-  // ...
+    
+    public final KafkaTemplate<String, String> kafkaStringTemplate;
+    public final KafkaTemplate<String, Message> kafkaMessageTemplate;
+    
+    public SimplePublisher(KafkaTemplate<String, String> kafkaStringTemplate, KafkaTemplate<String, Message> kafkaMessageTemplate) {
+        this.kafkaStringTemplate = kafkaStringTemplate;
+        this.kafkaMessageTemplate = kafkaMessageTemplate;
+    }
+    
+    // ...
+  
+    public void sendObject(Message message) {
+      kafkaTemplate.send("object", message);
+    }
+}
+```
 
-  public void sendObject(Message message) {
-    kafkaTemplate.send("object", message);
+N'utilisant plus la configuration par défaut, nous devons configurer nos KafkaTemplate.
+
+Pour ce faire, nous allons créer une classe qui va contenir 4 Beans:
+- Un Bean pour le KafkaTemplate de String (celui que nous utilisons déjà)
+- Un Bean pour le KafkaTemplate de Message (celui que nous venons de créer)
+- Un Bean pour PublisherFactory pour configurer le KafkaTemplate de String
+- Un Bean pour PublisherFactory pour configurer le KafkaTemplate de Message
+
+```java
+@Configuration
+public class KafkaConfiguration {
+    // ...
+
+  /**
+   * Bean de configuration du ProducerFactory pour les messages de type String
+   * Il permet de configurer la connexion au serveur Kafka et la sérialisation/désérialisation des messages
+   * Dans notre cas nous utilisons la classe StringSerializer pour la sérialisation
+   * @return le ProducerFactory configurer pour sérialiser les messages de type String
+   */
+    @Bean
+    public ProducerFactory<String, String> producerFactory() {
+        Map<String, Object> configProps = new HashMap<>();
+        configProps.put(
+                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
+                "localhost:9092");
+        configProps.put(
+                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+                StringSerializer.class);
+        configProps.put(
+                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+                StringSerializer.class);
+        return new DefaultKafkaProducerFactory<>(configProps);
+    }
+
+  /**
+   * Bean de configuration du ProducerFactory pour les messages de type Message.
+   * Il permet de configurer la connexion au serveur Kafka et la sérialisation/désérialisation des messages
+   * Dans notre cas nous utilisons la classe JsonSerializer pour la sérialisation
+   * @return le ProducerFactory configurer pour sérialiser les messages de type Message
+   */
+    @Bean
+    public ProducerFactory<String, Message> messageProducerFactory() {
+        Map<String, Object> configProps = new HashMap<>();
+        configProps.put(
+                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
+                "localhost:9092");
+        configProps.put(
+                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+                StringSerializer.class);
+        configProps.put(
+                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+                JsonSerializer.class);
+        return new DefaultKafkaProducerFactory<>(configProps);
+    }
+
+  /**
+   * Bean de configuration du KafkaTemplate pour les messages de type String
+   * Il prend en paramètre le ProducerFactory de String
+   * @return le KafkaTemplate configuré pour envoyer des messages de type String
+   */
+    @Bean
+    public KafkaTemplate<String, String> kafkaStringTemplate() {
+        return new KafkaTemplate<>(producerFactory());
+    }
+    /**
+     * Bean de configuration du KafkaTemplate pour les messages de type Message
+     * Il prend en paramètre le ProducerFactory de Message
+     * @return le KafkaTemplate configuré pour envoyer des messages de type Message
+     */
+    @Bean
+    public KafkaTemplate<String, Message> kafkaMessageTemplate() {
+        return new KafkaTemplate<>(messageProducerFactory());
+    }
+}
+```
+
+Cette configuration permet de pouvoir utiliser deux types de KafkaTemplate dans notre application. Vous pouvez l'étendre
+pour fournir autant de KafkaTemplate que vous voulez.
+
+Le publisher est maintenant prêt à envoyer des objets Message sur le topic "object".
+
+### 2. Le Stream
+
+Nous allons faire de même pour le stream. Nous allons créer un nouveau stream qui va lire les messages de type Message
+et les transformer dans un nouveau type de message (MessageInfo).
+
+La classe message est la même que celle utilisée dans le publisher.
+
+```java
+public class Message {
+  private String content;
+  private String auteur;
+  
+  // Getters et Setters
+}
+```
+La classe MessageInfo est la suivante :
+
+```java
+public class MessageInfo {
+  private String content;
+  private String auteur;
+  private Integer size;
+  
+  // Getters et Setters
+}
+```
+
+Nous devons maintenant créer un nouveau stream qui va lire les messages de type Message et les transformer en MessageInfo.
+
+```java
+@Component
+public class SimpleStream {
+    // ...
+
+  @Autowired
+  public void messagePipeline(StreamsBuilder builder){
+    JsonSerde<Message> messageSerde = new JsonSerde<>(Message.class);
+    KStream<String, Message> stream = builder.stream("object", Consumed.with(Serdes.String(), messageSerde));
+    stream.mapValues(value -> {
+      MessageInfo messageInfo = new MessageInfo();
+      messageInfo.setAuthor(value.getAuthor());
+      messageInfo.setMessage(value.getMessage());
+      messageInfo.setSize(value.getMessage().length());
+      return messageInfo;
+    }).to("infos", Produced.with(Serdes.String(), new JsonSerde<>(MessageInfo.class)));
   }
 }
 ```
 
+En lancant l'application, un message d'erreur va apparaître dans la console. Il manque deux choses pour que le stream
+fonctionne correctement.
+
+Il faut définir un Serializer et un Deserializer par défaut dans la configuration de Kafka. Pour cela, modifions la classe
+KafkaConfiguration comme suit :
+
+```java
+@Configuration
+public class KafkaConfiguration {
+
+    @Bean(name = KafkaStreamsDefaultConfiguration.DEFAULT_STREAMS_CONFIG_BEAN_NAME)
+    KafkaStreamsConfiguration kStreamsConfig() {
+        Map<String, Object> props = new HashMap<>();
+        props.put(StreamsConfig.APPLICATION_ID_CONFIG, "stream");
+        props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+        // Serde (Serializer/Deserializer) par défaut pour les clés de type String
+        props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
+        // Serde (Serializer/Deserializer) par défaut pour les valeurs de type Message
+        props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass());
+        return new KafkaStreamsConfiguration(props);
+    }
+}
+```
+
+En relancant vous aurez maintenant un autre message d'erreur. Lorsque JsonSerde serialise un Object, il ajoute une métadonnée
+qui donne la classe de l'objet. Hors quand le stream veut désérialiser le message, il ne trouve pas la classe Message (qui est 
+celle dans le service "publisher"). Il lève donc une exception.
+
+Pour résoudre ce problème, il faut lui spécifier de ne pas prendre en compte cette métadonnée. Pour cela, modifions la classe
+WordCountProcessor comme suit :
+
+```java
+@Component
+class WordCountProcessor {
+  @Autowired
+  public void messagePipeline(StreamsBuilder builder){
+    JsonSerde<Message> messageSerde = new JsonSerde<>(Message.class);
+    
+    
+    // On spécifie que la Serde ne doit pas prendre en compte la métadonnée
+    messageSerde.ignoreTypeHeaders();
+    
+    
+    KStream<String, Message> stream = builder.stream("object", Consumed.with(Serdes.String(), messageSerde));
+    stream.mapValues(value -> {
+      MessageInfo messageInfo = new MessageInfo();
+      messageInfo.setAuthor(value.getAuthor());
+      messageInfo.setMessage(value.getMessage());
+      messageInfo.setSize(value.getMessage().length());
+
+      return messageInfo;
+    }).to("infos", Produced.with(Serdes.String(), new JsonSerde<>(MessageInfo.class)));
+  }
+}
+```
+
+Le service Stream peut maintenant être lancé sans erreurs. Il reçoit les messages de type Message du topic "object" et les
+transforme en MessageInfo avant de les envoyer sur le topic "infos".
+
+### 3. Le Consumer
+
+Le consumer doit aussi être modifié pour pouvoir recevoir des messages de type MessageInfo. Nous allons donc créer une classe
+MessageInfo.
+
+```java
+class MessageInfo {
+  private String content;
+  private String auteur;
+  private Integer size;
+  
+  // Getters et Setters
+
+  @Override
+  public String toString() {
+    return "MessageInfo{" +
+            "message='" + message + '\'' +
+            ", author='" + author + '\'' +
+            ", size=" + size +
+            '}';
+  }
+}
+```
+
+> __Note :__ Ajouter un toString() permet d'afficher les messages de manière plus lisible.
+
+Nous allons ensuite créer un nouveau consumer qui va lire les messages de type MessageInfo dans la classe SimpleConsumer.
+
+```java
+@Component
+class SimpleConsumer {
+
+    // ...
+  
+    @KafkaListener(topics = "infos", groupId = "infos")
+    public void listen(MessageInfo messageInfo) {
+        System.out.println("Vous avez un nouveau message " + messageInfo);
+    }
+}
+```
+
+Si vous lancez l'application, vous verrez que vous avez des erreurs.
+
+En effet, le consumer recoit des messages de type MessageInfo, mais il ne sait pas comment les désérialiser.
+
+Il faut donc lui spécifier un Serde (Serializer/Deserializer) pour les valeurs de type MessageInfo.
+
+Pour ce faire, comme pour les deux autres services, nous devons créer une classe KafkaConfiguration.
+
+Il va définir 4 Beans :
+- Un Bean pour la configuration du consumer (ConsumerFactory) qui deserialize les messages de type `String`
+- Un Bean pour la configuration du consumer (ConsumerFactory) qui deserialize les messages de type `MessageInfo`
+- Un Bean pour la création du gestionnaire de consumer (ConcurrentKafkaListenerContainerFactory) pour les messages de type `String`
+- Un Bean pour la création du gestionnaire de consumer (ConcurrentKafkaListenerContainerFactory) pour les messages de type `MessageInfo`
+
+Voici le Bean pour la configuration du consumer (ConsumerFactory) qui deserialize les messages de type `String`.
+
+```java
+
+@Configuration
+public class KafkaConfiguration {
+
+  @Bean
+  public ConsumerFactory<String, String> consumerFactory() {
+    Map<String, Object> config = new HashMap<>();
+    config.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+    config.put(ConsumerConfig.GROUP_ID_CONFIG, "group_id");
+    // Configuration du Deserializer pour les valeurs de type String
+    config.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+    config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+    return new DefaultKafkaConsumerFactory<>(config);
+  }
+  
+  // ...
+
+}
+```
+
+Voici le Bean pour la configuration du consumer (ConsumerFactory) qui deserialize les messages de type `MessageInfo`.
+
+```java
+@Configuration
+class KafkaConfiguration {
+  // ...
+  @Bean
+  public ConsumerFactory<String, MessageInfo> messageConsumerFactory() {
+    Map<String, Object> config = new HashMap<>();
+
+    // Création d'un Deserializer pour les valeurs de type MessageInfo
+    JsonDeserializer<MessageInfo> deserializer = new JsonDeserializer<>(MessageInfo.class);
+    // Comme pour le Stream, on spécifie que la Serde ne doit pas prendre en compte la métadonnée de Types
+    deserializer.ignoreTypeHeaders();
+
+    config.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+    config.put(ConsumerConfig.GROUP_ID_CONFIG, "group_id");
+    config.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+    // On Spécifie le Deserializer pour les valeurs de type MessageInfo
+    config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, deserializer);
+
+    // On retourne le ConsumerFactory
+    return new DefaultKafkaConsumerFactory<>(config, new StringDeserializer(), deserializer);
+  }
+    // ...
+}
+```
+
+Voici le Bean pour la création du gestionnaire de consumer (ConcurrentKafkaListenerContainerFactory) pour les messages de type `String`.
+
+```java
+@Configuration
+class KafkaConfiguration {
+  // ...
+  @Bean
+  public ConcurrentKafkaListenerContainerFactory<String, String> kafkaListenerContainerFactory() {
+    ConcurrentKafkaListenerContainerFactory<String, String> factory = new ConcurrentKafkaListenerContainerFactory<>();
+    factory.setConsumerFactory(consumerFactory());
+    return factory;
+  }
+
+}
+```
+
+Voici le Bean pour la création du gestionnaire de consumer (ConcurrentKafkaListenerContainerFactory) pour les messages de type `MessageInfo`.
+
+```java
+@Configuration
+class KafkaConfiguration {
+    // ...
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, MessageInfo> messageKafkaListenerContainerFactory(
+            ConsumerFactory<String, MessageInfo> messageConsumerFactory) {
+        ConcurrentKafkaListenerContainerFactory<String, MessageInfo> factory = new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(messageConsumerFactory);
+        return factory;
+    }
+}
+```
+
+Nous pouvons maintenant modifier le consumer pour qu'il puisse recevoir des messages de type MessageInfo.
+
+```java
+@Component
+class SimpleConsumer {
+
+    // ...
+
+    @KafkaListener(
+            topics = "infos", 
+            groupId = "infos", 
+            containerFactory = "messageKafkaListenerContainerFactory") // On spécifie le containerFactory en fonction du nom du Bean
+    public void listen(MessageInfo messageInfo) {
+        System.out.println("Vous avez un nouveau message " + messageInfo);
+    }
+}
+```
+
+Si vous relancez l'application, vous verrez que les messages sont bien reçus.
+
+### Test de l'application
+
+Vous pouvez maintenant tester l'application.
+
+La requête suivante permet d'envoyer un message de type String.
+
+```http request
+POST http://localhost:8080/message
+Content-Type: plain/text
+
+Hello World, ceci est un message de type String
+```
+
+Le message sera envoyé sur le topic `simple` et sera reçu par le consumer qui l'affichera dans la console.
+
+La requête suivante permet d'envoyer un message de type MessageInfo.
+
+```http request
+POST http://localhost:8080/text
+Content-Type: plain/text
+
+Hello World, ceci est un message qui doit être traité par un compteur de mots
+```
+
+Vous verrez dans la console du consumer que le message a été reçu et traité.
+
+```text
+Hello 1
+World 1
+ceci 1
+est 1
+un 1
+message 1
+qui 1
+doit 1
+être 1
+traité 1
+par 1
+un 2
+compteur 1
+de 1
+mots 1
+``` 
+
+Vous pouvez envoyez des messages au format json en utilisant la requête suivante.
+
+```http request
+POST http://localhost:8080/object
+content-type: application/json
+
+{
+  "message": "Hello World, ceci est un message de type MessageInfo",
+  "author": "John Doe"
+}
+```
+
+Vous verrez dans la console du consumer que le message a été reçu et traité.
+
+```text
+MessageInfo{message='Hello World, ceci est un message de type MessageInfo', author='John Doe', size=52}
+```
+
+## Conclusion
+
+Cet exercice vous a permis de découvrir comment utiliser les Publishers, Consumer et les Streams de Kafka avec Spring Boot
+et comment les configurer pour qu'ils puissent traiter des messages de type String et de type MessageInfo.
+
+Vous trouverez la documentation officielle de spring kafka [https://spring.io/projects/spring-kafka](https://spring.io/projects/spring-kafka)

@@ -10,9 +10,11 @@ public class SimplePublisher {
      * KafkaTemplate permet d'envoyer des messages sur un topic
      */
     private final KafkaTemplate<String, String> kafkaTemplate;
+    private final KafkaTemplate<String, Message> kafkaTemplateObject;
 
-    public SimplePublisher(KafkaTemplate<String, String> kafkaTemplate) {
+    public SimplePublisher(KafkaTemplate<String, String> kafkaTemplate, KafkaTemplate<String, Message> kafkaTemplateObject) {
         this.kafkaTemplate = kafkaTemplate;
+        this.kafkaTemplateObject = kafkaTemplateObject;
     }
 
     /**
@@ -32,5 +34,8 @@ public class SimplePublisher {
     }
 
 
+    public void sendObject(Message message) {
+        kafkaTemplateObject.send("object", message);
+    }
 
 }

@@ -24,4 +24,12 @@ public class SimpleConsumer {
             @Payload String count) {
         System.out.println(word + " (" + count + ")");
     }
+
+    @KafkaListener(
+            topics = "infos",
+            groupId = "object-consumer",
+            containerFactory = "messageKafkaListenerContainerFactory")
+    public void consumeInfos(MessageInfo messageInfo) {
+        System.out.println(messageInfo);
+    }
 }

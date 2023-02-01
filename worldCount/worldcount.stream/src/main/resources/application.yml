@@ -3,3 +3,6 @@ server:
 spring:
   kafka:
     bootstrap-servers: localhost:9092
+    consumer:
+      properties:
+        spring.json.trusted.packages: "com.semifir.formation.kafka.worldcount.publisher.*"

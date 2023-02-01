@@ -20,4 +20,9 @@ public class MessageController {
     public void publishTextMessage(@RequestBody String message) {
         simplePublisherService.sendMessageToTextTopic(message);
     }
+
+    @PostMapping("/object")
+    public void publishObjectMessage(@RequestBody Message message) {
+        simplePublisherService.sendObject(message);
+    }
 }

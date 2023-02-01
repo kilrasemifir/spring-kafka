@@ -26,12 +26,6 @@ public class Application {
 	@Value(value = "${spring.kafka.bootstrap-servers}")
 	private String bootstrapAddress;
 
-	@Bean(name = KafkaStreamsDefaultConfiguration.DEFAULT_STREAMS_CONFIG_BEAN_NAME)
-	KafkaStreamsConfiguration kStreamsConfig() {
-		Map<String, Object> props = new HashMap<>();
-		props.put(StreamsConfig.APPLICATION_ID_CONFIG, "stream");
-		props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
-		return new KafkaStreamsConfiguration(props);
-	}
+
 
 }
