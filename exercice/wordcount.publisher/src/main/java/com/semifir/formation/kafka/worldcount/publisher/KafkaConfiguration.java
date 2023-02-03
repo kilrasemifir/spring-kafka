@@ -60,6 +60,10 @@ public class KafkaConfiguration {
         return new DefaultKafkaProducerFactory<>(configProps);
     }
 
+
+
+
+
     /**
      * Bean de configuration du KafkaTemplate pour les messages de type String
      * Il prend en paramètre le ProducerFactory de String
