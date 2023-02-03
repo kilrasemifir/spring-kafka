@@ -24,11 +24,6 @@ public class BillProcessor {
         KStream<String, Person> personStream = builder.stream("person", Consumed.with(Serdes.String(), personSerde));
         KStream<String, Command> commandStream = builder.stream("command", Consumed.with(Serdes.String(), commandSerde));
 
-        personStream = personStream.mapValues(person -> {
-                    System.out.println(person);
-                    return person;
-                });
-
         KTable<String, Person> personTable = personStream.toTable();
         KTable<String, Command> commandTable = commandStream.toTable();
 

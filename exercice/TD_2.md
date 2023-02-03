@@ -277,8 +277,8 @@ public class BillProcessor {
         JsonSerde<Bill> billSerde = new JsonSerde<>(Bill.class);
 
         // Création des deux Streams
-        KStream<String, Person> personStream = builder.stream("persons", Consumed.with(Serdes.String(), personSerde));
-        KStream<String, Command> commandStream = builder.stream("commands", Consumed.with(Serdes.String(), commandSerde));
+        KStream<String, Person> personStream = builder.stream("person", Consumed.with(Serdes.String(), personSerde));
+        KStream<String, Command> commandStream = builder.stream("command", Consumed.with(Serdes.String(), commandSerde));
     }
 }
 
@@ -293,8 +293,8 @@ public class BillProcessor {
     @Autowired
     public void billPipeline(StreamsBuilder builder) {
         // ...
-        KStream<String, Person> personStream = builder.stream("persons", Consumed.with(Serdes.String(), personSerde));
-        KStream<String, Command> commandStream = builder.stream("commands", Consumed.with(Serdes.String(), commandSerde));
+        KStream<String, Person> personStream = builder.stream("person", Consumed.with(Serdes.String(), personSerde));
+        KStream<String, Command> commandStream = builder.stream("command", Consumed.with(Serdes.String(), commandSerde));
 
         KTable<String, Person> personTable = personStream.toTable();
         KTable<String, Command> commandTable = commandStream.toTable();
@@ -423,8 +423,11 @@ public class BillProcessor {
 Ce qui nous donne le code complet:
 
 ```java
+
 @Component
 public class BillProcessor {
+
+    private String person;
 
     @Autowired
     public void billPipeline(StreamsBuilder builder) {
@@ -436,8 +439,8 @@ public class BillProcessor {
 
         JsonSerde<Bill> billSerde = new JsonSerde<>(Bill.class);
 
-        KStream<String, Person> personStream = builder.stream("persons", Consumed.with(Serdes.String(), personSerde));
-        KStream<String, Command> commandStream = builder.stream("commands", Consumed.with(Serdes.String(), commandSerde));
+        KStream<String, Person> personStream = builder.stream(person, Consumed.with(Serdes.String(), personSerde));
+        KStream<String, Command> commandStream = builder.stream("command", Consumed.with(Serdes.String(), commandSerde));
 
         KTable<String, Person> personTable = personStream.toTable();
         KTable<String, Command> commandTable = commandStream.toTable();
@@ -451,7 +454,7 @@ public class BillProcessor {
 
         KTable<String, Bill> billTable = personTable.leftJoin(commandTable, joiner);
         KGroupedTable<String, Bill> groupedTable = billTable.groupBy((key, bill) -> {
-            return KeyValue.pair(""+bill.getPerson().getId(), bill);
+            return KeyValue.pair("" + bill.getPerson().getId(), bill);
         });
 
         Reducer<Bill> add = (bill1, bill2) -> {
