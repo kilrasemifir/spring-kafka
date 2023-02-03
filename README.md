@@ -8,6 +8,8 @@ Vous trouverez les exercices dans le dossier [exercice](/exercice).
 
 Les énoncés sont dans le fichier [TD.md](/exercice/TD.md).
 
+Vous trouverez aussi un exercice en plus dans le fichier [TD_2.md](/TD_2.md).
+
 L'exercice 1 permet de mettre en place un producer et un consumer avec Spring Kafka.
 
 L'exercice 2 permet de mettre en plus un service avec Kafka Streams qui va transformer les données.

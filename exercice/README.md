@@ -8,4 +8,4 @@
 
 ## Travail Dirigé
 
-Vous trouverez les instructions pour réaliser le travail dirigé dans le fichier [TD.md](TD.md).
+Vous trouverez les instructions pour réaliser le travail dirigé dans le fichier [TD.md](TD.md) et le fichier [TD_2.md](TD_2.md).
